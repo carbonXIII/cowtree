@@ -1,0 +1,27 @@
+#+TITLE: cowtree
+
+Leveraging COW filesystem features with ostree to build EROFS images from commits
+
+- Builds an EROFS image from an erofs commit (e.g. container image from the union of packages)
+- Uses reflinked copies to share block data with the COW filesystem backed ostree
+- Generates file-backed EROFS images to avoid the need for a devicemapper setup
+
+** Example: building root image from packages
+1. Create ostree repo backed by COW filesystem
+   ~$ cd ${REPO_PATH}; ostree init~
+2. Load packages into the ostree as commits:
+   ~$ ostree commit --repo=${REPO_PATH} --branch=<branch name> --tree="tar=<package archive>"~
+3. Create union commit combinging the individual package commits
+   ~$ COMMIT_HASH=$(ostree commit --branch=<branch name> --tree="ref=<package commit>" ...)~
+4. ~$ cowtree build_image ${REPO_PATH} ${COMMIT_HASH}~
+5. ~$ mount -t erofs -o device=${REPO_PATH}/image/mirror ${REPO_PATH}/image/${COMMIT_HASH}.erofs ${SYSROOT_PATH}~
+
+** Required filesystem features:
+BTRFS tested. OpenZFS missing fiemap, but support seems possible.
+
+- FICLONERANGE: reflink ranges from a source object into a shared "mirror" file to be mounted alongside the image
+  - Avoids the need for a strange devicemapper setup to remap the block device
+
+- FS_IOC_FIEMAP: provides information about file physical extents to avoid copying holes to the mirror
+  - Could be made optional, but would requires us to build a map from file extents to our mirror address space,
+    duplicating work the filesystem is already doing to map file extents to physical addresses

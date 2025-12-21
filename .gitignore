@@ -1,0 +1,4 @@
+**/build/
+**/pkg/
+**/__pycache__/
+**/*.bin

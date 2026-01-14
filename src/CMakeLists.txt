@@ -13,4 +13,4 @@ target_link_libraries(cowtree PRIVATE
   ostree-cpp
   fmt::fmt
   erofs-utils
-  argparse)
+  argparse::argparse)

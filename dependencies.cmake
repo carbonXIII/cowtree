@@ -11,7 +11,3 @@ FetchContent_Declare(erofs-utils
 FetchContent_MakeAvailable(erofs-utils)
 add_library(erofs-utils INTERFACE)
 target_include_directories(erofs-utils INTERFACE ${erofs-utils_SOURCE_DIR}/include)
-
-FetchContent_Declare(argparse
-  GIT_REPOSITORY https://github.com/p-ranav/argparse.git
-  OVERRIDE_FIND_PACKAGE)

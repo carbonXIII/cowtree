@@ -7,11 +7,11 @@ Leveraging COW filesystem features with ostree to build EROFS images from commit
 - Generates file-backed EROFS images to avoid the need for a devicemapper setup
 
 ** Example: building root image from packages
-1. Create ostree repo backed by COW filesystem
+1. Create ostree repo backed by COW filesystem: \\
    ~$ cd ${REPO_PATH}; ostree init~
-2. Load packages into the ostree as commits:
+2. Load packages into the ostree as commits: \\
    ~$ ostree commit --repo=${REPO_PATH} --branch=<branch name> --tree="tar=<package archive>"~
-3. Create union commit combinging the individual package commits
+3. Create union commit combinging the individual package commits: \\
    ~$ COMMIT_HASH=$(ostree commit --branch=<branch name> --tree="ref=<package commit>" ...)~
 4. ~$ cowtree build_image ${REPO_PATH} ${COMMIT_HASH}~
 5. ~$ mount -t erofs -o device=${REPO_PATH}/image/mirror ${REPO_PATH}/image/${COMMIT_HASH}.erofs ${SYSROOT_PATH}~

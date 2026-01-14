@@ -1,0 +1,40 @@
+pkgname=cowtree
+pkgver=0.1
+pkgrel=1
+pkgdesc="Leveraging COW filesystem features with ostree to build EROFS images"
+arch=('any')
+url="https://github.com/carbonxiii/cowtree"
+
+source=(
+    "${pkgname}::git+file://${startdir}/../"
+    "ostree-cpp::git+https://github.com/carbonXIII/ostree-cpp"
+    "erofs-utils::git+https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git"
+)
+sha256sums=(
+    'SKIP'
+    'SKIP'
+    'SKIP'
+)
+
+makedepends=(
+    'argparse'
+)
+
+depends=(
+    'fmt'
+    'ddcutil'
+)
+
+build() {
+    cd ${srcdir}/${pkgname}
+    cmake -B ./build \
+          -GNinja \
+          -DFETCHCONTENT_SOURCE_DIR_EROFS-UTILS="${srcdir}/erofs-utils" \
+          -DFETCHCONTENT_SOURCE_DIR_OSTREE-CPP="${srcdir}/ostree-cpp"
+    cmake --build ./build
+}
+
+package() {
+    cd ${srcdir}/${pkgname}
+    cmake --install ./build --prefix ${pkgdir}/usr/
+}

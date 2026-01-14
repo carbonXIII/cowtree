@@ -6,3 +6,5 @@ include(dependencies.cmake)
 
 add_subdirectory(src)
 add_subdirectory(test)
+
+install(TARGETS cowtree EXPORT cowtree DESTINATION bin)

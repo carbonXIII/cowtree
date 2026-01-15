@@ -19,7 +19,7 @@ build_image_from_commit(std::filesystem::path const& path, std::string const& co
   auto commit = TRY(repo.load_commit(commit_csum));
 
   mkdirat(repo.get_root_dfd(), "image", 0777);
-  Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE)));
+  Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE, 0755)));
 
   auto meta = TRY(build_meta(commit, mirror));
   fmt::println(stderr, "mirror size: {}", mirror.size);

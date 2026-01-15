@@ -18,7 +18,11 @@ Mirror::insert_file(int fd, uint64_t len) {
     resize(e.phys + e.length);
 
     if (ioctl(mirror_fd, FICLONERANGE, &range) != 0)
-      return std::unexpected(fmt::format("ficlonerange failed: errno={}", errno));
+      return std::unexpected(fmt::format("ficlonerange(offset={}, len={} < total_len={}) failed: errno={}",
+                                         range.src_offset,
+                                         range.src_length,
+                                         len,
+                                         errno));
   }
 
   BlockMap block_map { .size = erofs::BLOCK_SIZE, .offset = block_offset };

@@ -14,8 +14,10 @@ build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold) {
   struct pop_sentry_t {};
   using entry_t = cat_variant_t<ostree::CommitIter::value_type, pop_sentry_t>;
 
+  if (inline_threshold < erofs::BLOCK_SIZE)
+    return std::unexpected("inline_threshold must be >= BLOCK_SIZE");
+
   MetadataResult ret;
-  erofs::MetadataBuilder meta;
 
   std::vector<std::pair<FileInfo, erofs::DirectoryBuilder>> dir_stack;
   std::vector<entry_t> stack;
@@ -61,7 +63,7 @@ build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold) {
         },
         [&](pop_sentry_t) {
           auto info = dir_stack.back().first;
-          auto node = meta.push(info, dir_stack.back().second);
+          auto node = ret.meta.push(info, dir_stack.back().second);
           dir_stack.pop_back();
 
           --depth;
@@ -102,14 +104,14 @@ build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold) {
 
                 if (content.size()) {
                   fmt::println(stderr, "\tinline");
-                  node = meta.push(info.value(), content);
+                  node = ret.meta.push(info.value(), content);
                 } else if(auto chunks = try_get_chunks(file, info.value(), mirror); chunks.has_value()) {
                   fmt::println(stderr, "\tchunks");
-                  node = meta.push(info.value(), chunks.value());
+                  node = ret.meta.push(info.value(), chunks.value());
                 } else {
                   fmt::println(stderr, "failed to get file chunks: {}", chunks.error());
 
-                  node = meta.push(info.value());
+                  node = ret.meta.push(info.value());
                 }
               }
 
@@ -126,6 +128,5 @@ build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold) {
       }, entry);
   }
 
-  ret.meta = meta.finalize();
   return ret;
 }

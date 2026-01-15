@@ -1,5 +1,5 @@
 pkgname=cowtree
-pkgver=0.1
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Leveraging COW filesystem features with ostree to build EROFS images"
 arch=('any')

@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <bit>
 #include <linux/types.h>
+#include <numeric>
+#include <queue>
+#include <algorithm>
 
 #include <ostree/fileinfo.hpp>
 
@@ -53,59 +56,85 @@ namespace erofs {
   using blkaddr_t = uint32_t;
 
   struct DirectoryBuilder {
-    using type = std::array<char, BLOCK_SIZE>;
+    std::vector<std::array<char, BLOCK_SIZE>> buf;
+    size_t len = 0;
 
-    bool sorted = false;
-    type buf {};
-    int n_ent = 0;
-    int p_str = BLOCK_SIZE;
-
-    erofs_dirent& get(int i) {
-      return block_view<erofs_dirent>(buf)[i];
-    }
+    std::vector<erofs_dirent> dirs;
+    std::vector<std::pair<size_t, size_t>> names;
+    std::string name_buf;
 
     void push(erofs_dirent const& ent, std::string_view name) {
-      p_str -= name.size();
-      copy(name, std::span{buf}.subspan(p_str));
+      auto start = name_buf.size();
+      name_buf.resize(name_buf.size() + name.size());
+      copy(name, std::span{name_buf}.subspan(start));
 
-      auto& _ent = get(n_ent++);
-      _ent = ent;
-      _ent.nameoff = p_str;
+      names.emplace_back(start, name.size());
+      dirs.push_back(ent);
     }
 
     std::span<std::byte const> finalize() {
-      if (!sorted) {
-        std::vector<std::pair<std::string_view, int>> names;
+      if (dirs.size()) {
+        std::vector<size_t> order(dirs.size());
+        std::iota(order.begin(), order.end(), 0);
 
-        names.reserve(n_ent);
-        for(int i = 0; i < n_ent; i++) {
-          size_t start = get(i).nameoff;
-          size_t end = i > 0 ? get(i-1).nameoff : buf.size();
-          names.emplace_back(std::string_view(&buf[start], end - start), i);
+        auto get_name = [&](int i) {
+          return std::string_view { &name_buf[names[i].first], names[i].second };
+        };
+
+        std::ranges::sort(order, std::ranges::less{}, [&](int i){ return get_name(i); });
+
+        std::vector<size_t> total_space(dirs.size(), 0);
+        for (int i = 0; i < order.size(); i++) {
+          total_space[i] = sizeof(erofs_dirent) + get_name(order[i]).size();
+          if (i) total_space[i] += total_space[i-1];
         }
-        std::ranges::sort(names);
+
+        auto for_block = [&](auto&& f) {
+          for (size_t s = 0, nblocks = 0; s < order.size(); nblocks++) {
+            size_t prefix = s ? total_space[s - 1] : 0;
+            size_t t = std::ranges::lower_bound(total_space, prefix + BLOCK_SIZE) - total_space.begin();
+
+            if (auto sz = total_space[t - 1] - prefix; sz > BLOCK_SIZE)
+              throw std::runtime_error(fmt::format("logic error: [{}, {}), size={}", s, t, sz));
+
+            FORWARD(f)(nblocks, std::span{ &order[s], t - s });
+            s = t;
+          }
+        };
 
         {
-          type tmp {};
-          auto view = block_view<erofs_dirent>(tmp);
-
-          int j = 0;
-          p_str = n_ent * sizeof(erofs_dirent);
-          for(auto const& [name, i]: names) {
-            view[j] = get(i);
-            view[j]->nameoff = p_str;
-
-            copy(name, std::span{tmp}.subspan(p_str));
-            p_str += name.size();
-            ++j;
-          }
-          swap(tmp, buf);
+          int nblocks = 0;
+          for_block([&](auto, auto){ nblocks++; });
+          buf.resize(nblocks);
         }
 
-        sorted = true;
+        len = 0;
+        for_block([&](size_t nblocks, auto order) {
+          auto block = std::span{ buf[nblocks].data(), BLOCK_SIZE };
+          auto block_dirs = block_view<erofs_dirent>(block);
+
+          int nameoff = order.size() * sizeof(erofs_dirent);
+
+          int next = 0;
+          for (int i: order) {
+            block_dirs[next] = dirs[i];
+            block_dirs[next]->nameoff = nameoff;
+            next++;
+
+            auto name = get_name(i);
+            copy(name, block.subspan(nameoff));
+            nameoff += name.size();
+          }
+
+          len = std::max(len, nblocks * BLOCK_SIZE + nameoff);
+        });
+
+        dirs.clear();
+        names.clear();
+        name_buf.clear();
       }
 
-      return as_bytes(buf).subspan(0, p_str);
+      return len ? as_bytes(buf).subspan(0, len) : as_bytes(buf);
     }
   };
 
@@ -133,15 +162,38 @@ namespace erofs {
     };
 
     std::vector<std::array<std::byte, INODE_SIZE>> inodes;
+    size_t next_inode = 0;
+
+    std::queue<std::pair<size_t, size_t>> holes;
+    std::vector<nid_t> with_addr_in_meta;
 
     Node get(nid_t nid, std::size_t aux_size) { return { this, nid, aux_size }; }
 
+    std::span<std::byte> punch_hole(int len_blocks) {
+      auto start = round_up(next_inode, BLOCK_SIZE / INODE_SIZE);
+      auto end = start + len_blocks * (BLOCK_SIZE / INODE_SIZE);
+
+      if (inodes.size() < end) inodes.resize(end);
+      holes.push({start, end});
+
+      return std::span{&inodes[start][0], (end - start) * INODE_SIZE};
+    }
+
     Node push(erofs_inode_compact inode, size_t aux_size = 0) {
-      auto next = inodes.size();
+      for(; holes.size() && holes.front().first < next_inode + aux_size; holes.pop()) {
+        if (next_inode + aux_size <= holes.front().second) next_inode = holes.front().second;
+      }
+
+      auto next = next_inode;
       auto size = round_up(sizeof(erofs_inode_compact) + aux_size, INODE_SIZE);
-      inodes.resize(next + size / INODE_SIZE, {});
+
+      next_inode = next + size / INODE_SIZE;
+      if (inodes.size() < next_inode)
+        inodes.resize(next_inode);
+
       fmt::println(stderr, "nid: {}, size: {}", next, size);
       Node ret = get(next, size);
+
       ret.get() = inode;
       return ret;
     }
@@ -154,8 +206,25 @@ namespace erofs {
     }
 
     Node push(FileInfo const& info, std::span<std::byte const> content) {
+      uint32_t addr = -1;
+      uint32_t size = content.size();
+
+      if (content.size() > BLOCK_SIZE) {
+        auto nblocks = (content.size() + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        auto ext = punch_hole(nblocks - 1);
+        copy(content.subspan(BLOCK_SIZE), ext);
+        addr = (ext.data() - &inodes[0][0]) / BLOCK_SIZE;
+        content = content.subspan(0, BLOCK_SIZE);
+      }
+
       Node ret = push(info, inode_format(false, EROFS_INODE_FLAT_INLINE), content.size());
-      ret->i_size = content.size();
+      ret->i_size = size;
+
+      if (addr != -1) {
+        ret->i_u = erofs_inode_i_u { .raw_blkaddr = addr };
+        with_addr_in_meta.push_back(ret);
+      }
+
       copy(content, ret.aux());
       return ret;
     }
@@ -173,7 +242,13 @@ namespace erofs {
       return ret;
     }
 
-    std::vector<std::byte> finalize() {
+    std::vector<std::byte> finalize(size_t meta_blkaddr) {
+      for(auto id: with_addr_in_meta) {
+        auto node = get(id, 0);
+        node->i_u.raw_blkaddr += meta_blkaddr;
+      }
+      with_addr_in_meta.clear();
+
       auto b = as_bytes(inodes);
       return std::vector<std::byte>{b.begin(), b.end()};
     }

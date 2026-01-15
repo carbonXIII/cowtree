@@ -10,9 +10,9 @@ std::expected<ChunkMap, std::string>
 try_get_chunks(ostree::File& file, FileInfo const& info, Mirror& mirror);
 
 struct MetadataResult {
-  std::vector<std::byte> meta;
+  erofs::MetadataBuilder meta;
   erofs::nid_t root_nid;
 };
 
 std::expected<MetadataResult, std::string>
-build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold = 512);
+build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold = erofs::BLOCK_SIZE);

@@ -17,8 +17,8 @@ struct DeviceInfo {
 
   operator erofs_deviceslot() {
     erofs_deviceslot ret {
-      .blocks = uint32_t(round_up(sz_bytes, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE),
-      .mapped_blkaddr = uint32_t(block_offset),
+      .blocks_lo = uint32_t(round_up(sz_bytes, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE),
+      .uniaddr_lo = uint32_t(block_offset),
     };
     copy(tag, std::span{ret.tag, sizeof(ret.tag)});
     return ret;

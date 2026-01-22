@@ -5,10 +5,10 @@ build_fs(erofs::nid_t root_nid, erofs::MetadataBuilder& meta, std::span<DeviceIn
   erofs_super_block super {
     .magic = EROFS_SUPER_MAGIC_V1,
     .blkszbits = std::countr_zero(erofs::BLOCK_SIZE),
-    .root_nid = (uint16_t)root_nid,
     // TODO: inos
-    .feature_incompat = EROFS_FEATURE_INCOMPAT_DEVICE_TABLE,
+    .feature_incompat = EROFS_FEATURE_INCOMPAT_DEVICE_TABLE | EROFS_FEATURE_INCOMPAT_48BIT,
     .extra_devices = (uint16_t)devices.size(),
+    .rootnid_8b = root_nid,
   };
 
   std::vector<std::byte> ret;
@@ -22,19 +22,19 @@ build_fs(erofs::nid_t root_nid, erofs::MetadataBuilder& meta, std::span<DeviceIn
   auto meta_bytes = meta.finalize(super.meta_blkaddr);
   auto meta_size = round_up(meta_bytes.size(), erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
 
-  super.blocks = super.meta_blkaddr + meta_size;
-  ret.resize(super.blocks * erofs::BLOCK_SIZE);
+  super.blocks_lo = super.meta_blkaddr + meta_size;
+  ret.resize(super.blocks_lo * erofs::BLOCK_SIZE);
 
   {
     auto device_slots = block_view<erofs_deviceslot>(std::span{ret}.subspan(devt_offset));
     for (int i = 0; auto device: devices) {
       device_slots[i++] = device;
       uint32_t end_block = device.block_offset + (device.sz_bytes + erofs::BLOCK_SIZE - 1) / erofs::BLOCK_SIZE;
-      super.blocks = std::max(super.blocks, end_block);
+      super.blocks_lo = std::max(super.blocks_lo, end_block);
     }
   }
 
-  fmt::println(stderr, "total blocks: {}", super.blocks);
+  fmt::println(stderr, "total blocks: {}", super.blocks_lo);
 
   copy(as_bytes(std::span{&super, 1}), std::span{ret}.subspan(EROFS_SUPER_OFFSET));
   copy(meta_bytes, std::span{ret}.subspan(super.meta_blkaddr * erofs::BLOCK_SIZE));

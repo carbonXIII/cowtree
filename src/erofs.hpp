@@ -72,6 +72,12 @@ namespace erofs {
       dirs.push_back(ent);
     }
 
+    size_t final_size(bool need_dotdot) {
+      size_t ret = name_buf.size() + dirs.size() * sizeof(erofs_dirent);
+      if (need_dotdot) ret += 2 + sizeof(erofs_dirent);
+      return ret;
+    }
+
     std::span<std::byte const> finalize() {
       if (dirs.size()) {
         std::vector<size_t> order(dirs.size());
@@ -134,11 +140,13 @@ namespace erofs {
         name_buf.clear();
       }
 
-      return len ? as_bytes(buf).subspan(0, len) : as_bytes(buf);
+      return as_bytes(buf).subspan(0, len);
     }
   };
 
   struct MetadataBuilder {
+    static auto constexpr INODES_PER_BLOCK = BLOCK_SIZE / INODE_SIZE;
+
     struct Node {
       MetadataBuilder* p;
       nid_t nid;
@@ -158,7 +166,7 @@ namespace erofs {
         return std::span(&p->inodes[nid][0], size).subspan(sizeof(erofs_inode_compact));
       }
 
-      void link() { get().i_nlink++; }
+      void link() { get().i_nb.nlink++; }
     };
 
     std::vector<std::array<std::byte, INODE_SIZE>> inodes;
@@ -170,8 +178,8 @@ namespace erofs {
     Node get(nid_t nid, std::size_t aux_size) { return { this, nid, aux_size }; }
 
     std::span<std::byte> punch_hole(int len_blocks) {
-      auto start = round_up(next_inode, BLOCK_SIZE / INODE_SIZE);
-      auto end = start + len_blocks * (BLOCK_SIZE / INODE_SIZE);
+      auto start = round_up(next_inode, INODES_PER_BLOCK);
+      auto end = start + len_blocks * INODES_PER_BLOCK;
 
       if (inodes.size() < end) inodes.resize(end);
       holes.push({start, end});
@@ -180,19 +188,24 @@ namespace erofs {
     }
 
     Node push(erofs_inode_compact inode, size_t aux_size = 0) {
-      for(; holes.size() && holes.front().first < next_inode + aux_size; holes.pop()) {
-        if (next_inode + aux_size <= holes.front().second) next_inode = holes.front().second;
+      auto size = round_up(sizeof(erofs_inode_compact) + aux_size, INODE_SIZE) / INODE_SIZE;
+      for(; holes.size() && holes.front().first < next_inode + size; holes.pop()) {
+        if (next_inode + size <= holes.front().second) next_inode = holes.front().second;
+
+        if ((next_inode + 1) / INODES_PER_BLOCK != (next_inode + size - 1) / INODES_PER_BLOCK) {
+          auto offset = INODES_PER_BLOCK - ((next_inode + 1) % INODES_PER_BLOCK);
+          next_inode += offset;
+        }
       }
 
       auto next = next_inode;
-      auto size = round_up(sizeof(erofs_inode_compact) + aux_size, INODE_SIZE);
 
-      next_inode = next + size / INODE_SIZE;
+      next_inode = next + size;
       if (inodes.size() < next_inode)
         inodes.resize(next_inode);
 
       fmt::println(stderr, "nid: {}, size: {}", next, size);
-      Node ret = get(next, size);
+      Node ret = get(next, size * INODE_SIZE);
 
       ret.get() = inode;
       return ret;
@@ -205,33 +218,52 @@ namespace erofs {
       return ret;
     }
 
-    Node push(FileInfo const& info, std::span<std::byte const> content) {
-      uint32_t addr = -1;
-      uint32_t size = content.size();
+    static constexpr auto tail_size(size_t size) {
+      auto nblocks = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
+      return nblocks <= 1 ? size : size - (nblocks - 1) * BLOCK_SIZE;
+    }
 
-      if (content.size() > BLOCK_SIZE) {
+    Node& fill(Node& node, std::span<std::byte const> content) {
+      node->i_size = content.size();
+
+      if (content.size() > node.aux().size()) {
         auto nblocks = (content.size() + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        auto ext = punch_hole(nblocks - 1);
-        copy(content.subspan(BLOCK_SIZE), ext);
-        addr = (ext.data() - &inodes[0][0]) / BLOCK_SIZE;
-        content = content.subspan(0, BLOCK_SIZE);
+
+        int tail_blocks = 1;
+        auto tail = (nblocks - tail_blocks) * BLOCK_SIZE;
+
+        if (content.size() - tail > node.aux().size()) {
+          tail = content.size();
+          tail_blocks = 0;
+
+          node->i_format &= ~(EROFS_I_DATALAYOUT_MASK << EROFS_I_DATALAYOUT_BIT);
+          node->i_format |= (EROFS_INODE_FLAT_PLAIN << EROFS_I_DATALAYOUT_BIT);
+        }
+
+        auto ext = punch_hole(nblocks - tail_blocks);
+
+        copy(content.subspan(0, tail), ext);
+        node->i_u.startblk_lo = (ext.data() - &inodes[0][0]) / BLOCK_SIZE;
+
+        content = content.subspan(tail);
       }
 
-      Node ret = push(info, inode_format(false, EROFS_INODE_FLAT_INLINE), content.size());
-      ret->i_size = size;
+      if (content.size())
+        copy(content, node.aux());
 
-      if (addr != -1) {
-        ret->i_u = erofs_inode_i_u { .raw_blkaddr = addr };
-        with_addr_in_meta.push_back(ret);
-      }
+      return node;
+    }
 
-      copy(content, ret.aux());
-      return ret;
+    Node push(FileInfo const& info, std::span<std::byte const> content) {
+      Node ret = push(info, inode_format(false, EROFS_INODE_FLAT_INLINE), tail_size(content.size()));
+      return fill(ret, content);
     }
 
     Node push(FileInfo const& info, DirectoryBuilder& dir) {
       auto content = dir.finalize();
-      return push(info, as_bytes(content));
+      Node ret = push(info, as_bytes(content));
+      ret->i_format |= (1 << EROFS_I_DOT_OMITTED_BIT);
+      return ret;
     }
 
     Node push(FileInfo const& info, ChunkMap const& chunks) {
@@ -245,7 +277,8 @@ namespace erofs {
     std::vector<std::byte> finalize(size_t meta_blkaddr) {
       for(auto id: with_addr_in_meta) {
         auto node = get(id, 0);
-        node->i_u.raw_blkaddr += meta_blkaddr;
+        fmt::println(stderr, "fixing {}", id);
+        node->i_u.startblk_lo += meta_blkaddr;
       }
       with_addr_in_meta.clear();
 
@@ -272,9 +305,9 @@ namespace erofs {
       return {
         .i_xattr_icount = 0,
         .i_mode = (uint16_t)info.mode,
-        .i_nlink = 1,
+        .i_nb = { .nlink = 1 },
         .i_size = (uint32_t)info.size,
-        .i_u = erofs_inode_i_u { .raw_blkaddr = (__le32)-1 },
+        .i_u = erofs_inode_i_u { .startblk_lo = (__le32)-1 },
         .i_ino = (uint32_t)info.ino,
         .i_uid = (uint16_t)info.uid,
         .i_gid = (uint16_t)info.gid,

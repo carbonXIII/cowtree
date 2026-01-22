@@ -7,6 +7,12 @@
 
 #define FORWARD(x) std::forward<decltype(x)>(x)
 
+#define TRY(x) ({ \
+      auto __res = (x);                                 \
+      if(!__res) return std::unexpected(__res.error()); \
+      std::move(__res.value());                         \
+    })
+
 template <typename... T>
 struct overloaded: T... { using T::operator()...; };
 

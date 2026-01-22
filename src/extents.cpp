@@ -37,6 +37,9 @@ get_extents(int fd, uint64_t offset, size_t len) {
   auto ret = std::ranges::to<std::vector<Extent>>(block_view<fiemap_extent>(std::span{buf}.subspan(sizeof(args))) |
                                                   std::views::transform([](fiemap_extent const& e) { return Extent{e}; }));
 
+  for (auto e: block_view<fiemap_extent>(std::span{buf}.subspan(sizeof(args))))
+    fmt::println(stderr, "[{:X}, +{:X}) => {:X}, flags={:X}", e->fe_logical, e->fe_length, e->fe_physical, e->fe_flags);
+
   std::ranges::sort(ret, std::less<Extent>{});
   {
     int j = 1;

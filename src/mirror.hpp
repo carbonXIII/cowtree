@@ -15,11 +15,18 @@ struct DeviceInfo {
   size_t sz_bytes;
   size_t block_offset;
 
-  operator erofs_deviceslot() {
-    erofs_deviceslot ret {
-      .blocks = uint32_t(round_up(sz_bytes, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE),
-      .mapped_blkaddr = uint32_t(block_offset),
+  erofs_deviceslot operator() (bool use_ext_addr = true) {
+    size_t blocks = round_up(sz_bytes, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
+    erofs_deviceslot ret = {
+      .blocks_lo = (uint32_t)blocks,
+      .uniaddr_lo = (uint32_t)block_offset,
     };
+
+    if (use_ext_addr) {
+      ret.blocks_hi = blocks >> 32;
+      ret.blocks_hi = block_offset >> 32;
+    }
+
     copy(tag, std::span{ret.tag, sizeof(ret.tag)});
     return ret;
   }

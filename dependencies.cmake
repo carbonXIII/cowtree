@@ -7,7 +7,7 @@ FetchContent_Declare(ostree-cpp
 
 FetchContent_Declare(erofs-utils
   GIT_REPOSITORY https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git
-  GIT_TAG v1.8.10)
+  GIT_TAG v1.9.1)
 FetchContent_MakeAvailable(erofs-utils)
 add_library(erofs-utils INTERFACE)
 target_include_directories(erofs-utils INTERFACE ${erofs-utils_SOURCE_DIR}/include)

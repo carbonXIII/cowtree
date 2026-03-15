@@ -83,7 +83,6 @@ build_meta(ostree::Commit& commit, Mirror& mirror, size_t inline_threshold) {
 
               FileInfo _info = info->get();
               if (node) {
-                node.link();
                 _info.ino = node->i_ino;
               } else {
                 _info.ino = next_ino++;

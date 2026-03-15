@@ -128,8 +128,6 @@ namespace erofs {
       std::span<std::byte> aux() {
         return std::span(&p->inodes[nid][0], size).subspan(sizeof(erofs_inode_compact));
       }
-
-      void link() { get().i_nlink++; }
     };
 
     std::vector<std::array<std::byte, INODE_SIZE>> inodes;
@@ -147,8 +145,9 @@ namespace erofs {
     }
 
     Node push(FileInfo const& info,
-              uint16_t i_format = inode_format(false, EROFS_INODE_FLAT_PLAIN), size_t aux_size = 0) {
-      Node ret = push(inode_from_info(info), aux_size);
+              uint16_t i_format = inode_format(false, EROFS_INODE_FLAT_PLAIN), size_t aux_size = 0,
+              bool use_ext_addr = true) {
+      Node ret = push(inode_from_info(info, use_ext_addr), aux_size);
       ret->i_format = i_format;
       return ret;
     }
@@ -181,7 +180,7 @@ namespace erofs {
     static constexpr uint16_t inode_format(bool is_extended, int layout) {
       uint16_t f = is_extended ? EROFS_INODE_LAYOUT_EXTENDED : EROFS_INODE_LAYOUT_COMPACT;
       uint16_t l = layout & EROFS_I_DATALAYOUT_MASK;
-      return (f << EROFS_I_VERSION_BIT) | (l << EROFS_I_DATALAYOUT_BIT);
+      return (f << EROFS_I_VERSION_BIT) | (l << EROFS_I_DATALAYOUT_BIT) | (1 << EROFS_I_NLINK_1_BIT);
     }
 
     static constexpr erofs_inode_chunk_info chunk_format(int shift, bool use_struct) {
@@ -193,13 +192,13 @@ namespace erofs {
       };
     }
 
-    erofs_inode_compact inode_from_info(FileInfo const& info) {
+    erofs_inode_compact inode_from_info(FileInfo const& info, bool use_ext_addr = true) {
       return {
         .i_xattr_icount = 0,
         .i_mode = (uint16_t)info.mode,
-        .i_nlink = 1,
+        .i_nb = { .startblk_hi = (uint16_t)-1, },
         .i_size = (uint32_t)info.size,
-        .i_u = erofs_inode_i_u { .raw_blkaddr = (__le32)-1 },
+        .i_u = erofs_inode_i_u { .startblk_lo = (uint16_t)-1 },
         .i_ino = (uint32_t)info.ino,
         .i_uid = (uint16_t)info.uid,
         .i_gid = (uint16_t)info.gid,

@@ -1,5 +1,7 @@
 #include "meta.hpp"
 
+#include <fmt/format.h>
+
 std::expected<ChunkMap, std::string>
 try_get_chunks(ostree::File& file, FileInfo const& info, Mirror& mirror) {
   if (auto fd = file.get_fd(); !fd.has_value()) {

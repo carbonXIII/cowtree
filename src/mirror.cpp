@@ -1,5 +1,6 @@
 #include "mirror.hpp"
 
+#include <fmt/format.h>
 #include <linux/fs.h>
 #undef BLOCK_SIZE
 

@@ -11,3 +11,12 @@ FetchContent_Declare(erofs-utils
 FetchContent_MakeAvailable(erofs-utils)
 add_library(erofs-utils INTERFACE)
 target_include_directories(erofs-utils INTERFACE ${erofs-utils_SOURCE_DIR}/include)
+
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)

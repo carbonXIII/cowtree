@@ -9,9 +9,10 @@
 
 #include <fcntl.h>
 
-#include "mirror.hpp"
+#include <hostfs/mirror.hpp>
+#include <erofs/image.hpp>
+
 #include "meta.hpp"
-#include "image.hpp"
 
 std::expected<std::vector<std::byte>, std::string>
 build_image_from_commit(std::filesystem::path const& path, std::string const& commit_csum) {
@@ -21,11 +22,13 @@ build_image_from_commit(std::filesystem::path const& path, std::string const& co
   mkdirat(repo.get_root_dfd(), "image", 0777);
   Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE, 0755)));
 
-  auto meta = TRY(build_meta(commit, mirror));
-  fmt::println(stderr, "mirror size: {}", mirror.size);
+  auto super = TRY(start_filesystem(1));
+  auto meta = TRY(build_meta(super.meta_blkaddr * erofs::BLOCK_SIZE, commit, mirror));
 
-  auto dev = mirror.device_info();
-  return build_fs(meta.root_nid, meta.meta, std::span{&dev, 1});
+  fmt::println(stderr, "mirror size: {}", mirror.size);
+  auto dev = std::array { mirror.device_info(), };
+
+  return finish_filesystem(super, meta.root_nid, meta.meta, dev);
 }
 
 int main(int argc, char** argv) {
@@ -43,7 +46,7 @@ int main(int argc, char** argv) {
     _build_image.add_description("Build image from ostree commit");
     _build_image.add_argument("repo").help("Path to ostree repo").store_into(build_image.repo);
     _build_image.add_argument("commit").help("ostree commit checksum").store_into(build_image.commit);
-    _build_image.add_argument("-o").help("Output file. Use '-' to redirect to stdin").store_into(build_image.output);
+    _build_image.add_argument("-o").help("Output file. Use '-' to redirect to stdout").store_into(build_image.output);
     prog.add_subparser(_build_image);
 
     try {

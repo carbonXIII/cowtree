@@ -9,7 +9,7 @@
 #include <linux/fiemap.h>
 #include <linux/fs.h>
 
-#include "util.hpp"
+#include <util/util.hpp>
 
 Extent::Extent(fiemap_extent const& ext)
   : logical(ext.fe_logical), phys(ext.fe_physical), length(ext.fe_length) {}

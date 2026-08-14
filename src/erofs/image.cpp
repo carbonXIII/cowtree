@@ -1,13 +1,5 @@
 #include "image.hpp"
 
-struct SuperBlock {
-  uint64_t blocks;
-  uint64_t root_nid;
-  uint32_t meta_blkaddr;
-  uint16_t extra_devices;
-  uint16_t devt_slotoff;
-};
-
 erofs_super_block make_super_block_ext_addr(SuperBlock sb) {
   return {
     .magic = EROFS_SUPER_MAGIC_V1,
@@ -44,30 +36,37 @@ erofs_super_block make_super_block(SuperBlock sb) {
   };
 }
 
-std::expected<std::vector<std::byte>, std::string>
-build_fs(erofs::nid_t root_nid, std::span<std::byte> meta, std::span<DeviceInfo> devices, bool use_ext_addr) {
+std::expected<SuperBlock, std::string>
+start_filesystem(std::size_t num_devices, bool use_ext_addr) {
   SuperBlock sb = {
-    .root_nid = root_nid,
-    .extra_devices = (uint16_t)devices.size(),
+    .extra_devices = (uint16_t)num_devices,
+    .use_ext_addr = use_ext_addr,
   };
 
-  std::vector<std::byte> ret;
   auto super_blkaddr = EROFS_SUPER_OFFSET / erofs::BLOCK_SIZE;
-  auto meta_size = round_up(meta.size(), erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
 
-  sb.extra_devices = (uint16_t)devices.size();
   auto devt_offset = round_up(EROFS_SUPER_OFFSET + sizeof(erofs_super_block), EROFS_DEVT_SLOT_SIZE);
   sb.devt_slotoff = devt_offset / EROFS_DEVT_SLOT_SIZE;
 
   sb.meta_blkaddr = round_up(devt_offset + sb.extra_devices * EROFS_DEVT_SLOT_SIZE, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
 
+  return sb;
+}
+
+std::expected<std::vector<std::byte>, std::string>
+finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
+                  std::span<std::byte const> meta, std::span<DeviceInfo const> devices) {
+  sb.root_nid = root_nid;
+
+  auto meta_size = round_up(meta.size(), erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
+  fmt::println(stderr, "super ({} blocks) + meta ({} blocks)", sb.meta_blkaddr, meta_size);
   sb.blocks = sb.meta_blkaddr + meta_size;
-  ret.resize(sb.blocks * erofs::BLOCK_SIZE);
+  std::vector<std::byte> ret(sb.blocks * erofs::BLOCK_SIZE);
 
   {
-    auto device_slots = block_view<erofs_deviceslot>(std::span{ret}.subspan(devt_offset));
+    auto device_slots = block_view<erofs_deviceslot>(std::span{ret}.subspan(sb.devt_slotoff * EROFS_DEVT_SLOT_SIZE));
     for (int i = 0; auto device: devices) {
-      device_slots[i++] = device(use_ext_addr);
+      device_slots[i++] = device(sb.use_ext_addr);
       uint64_t end_block = device.block_offset + (device.sz_bytes + erofs::BLOCK_SIZE - 1) / erofs::BLOCK_SIZE;
       sb.blocks = std::max(sb.blocks, end_block);
     }
@@ -75,7 +74,7 @@ build_fs(erofs::nid_t root_nid, std::span<std::byte> meta, std::span<DeviceInfo>
 
   fmt::println(stderr, "total blocks: {}", sb.blocks);
 
-  auto super = use_ext_addr ? make_super_block_ext_addr(sb) : make_super_block(sb);
+  auto super = sb.use_ext_addr ? make_super_block_ext_addr(sb) : make_super_block(sb);
   copy(as_bytes(std::span{&super, 1}), std::span{ret}.subspan(EROFS_SUPER_OFFSET));
   copy(meta, std::span{ret}.subspan(super.meta_blkaddr * erofs::BLOCK_SIZE));
 

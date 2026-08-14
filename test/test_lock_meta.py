@@ -35,6 +35,8 @@ def test_lock_meta():
         print(ostree.subcmd(repo, 'ls', 'test'))
         print(ostree.subcmd(repo, 'ls', 'test', 'bar'))
 
+        cmd = ['../build/src/cowtree', 'build_image', '-o', '-', str(repo), str(commit)]
+        print(' '.join(cmd))
         res = subprocess.check_output(['../build/src/cowtree', 'build_image', '-o', '-', str(repo), str(commit)])
         with open(repo / 'test.bin', 'wb') as f:
             f.write(res)

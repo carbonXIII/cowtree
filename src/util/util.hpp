@@ -1,7 +1,6 @@
 #pragma once
 
 #include <span>
-#include <variant>
 #include <stdexcept>
 #include <ranges>
 
@@ -12,31 +11,6 @@ struct overloaded: T... { using T::operator()...; };
 
 template <typename... T>
 overloaded(T&&...) -> overloaded<T...>;
-
-template <typename...>
-struct cat_variant {};
-
-template <typename... Ts, typename... Us>
-struct cat_variant<std::variant<Ts...>, Us...> {
-  using type = std::variant<Ts..., Us...>;
-};
-
-template <typename... T>
-using cat_variant_t = cat_variant<T...>::type;
-
-template <typename... T>
-struct variant_cast_proxy {
-  std::variant<T...> val;
-
-  template <typename... U>
-  operator std::variant<U...>() {
-    return std::visit([](auto&& v) -> std::variant<U...> {
-        return FORWARD(v);
-    }, std::move(val));
-  }
-};
-
-auto variant_cast(auto&& arg) { return variant_cast_proxy { std::move(arg) }; }
 
 constexpr auto as_bytes(auto&& r) {
   return std::as_bytes(std::span{FORWARD(r)});
@@ -112,4 +86,13 @@ constexpr auto block_view(auto const& storage) {
 auto copy(auto const& src, auto&& dst) {
   if(dst.size() < src.size()) throw std::out_of_range("dst.size() < src.size()");
   return std::ranges::copy(src, dst.begin());
+}
+
+constexpr auto count_bits(auto n) {
+  return sizeof(n) * 8 - std::countl_zero(n);
+}
+
+constexpr auto subspan(auto& src, std::size_t offset, std::size_t size = -1) {
+  if (size == -1) return std::span{src}.subspan(offset);
+  return std::span{src}.subspan(offset, size);
 }

@@ -50,7 +50,6 @@ build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inli
   q.emplace_front(FileInfo { .mode = S_IFDIR,}, commit.begin());
 
   auto complete_link = [&](erofs::nid_t self, erofs::nid_t parent, size_t off) {
-    fmt::println(stderr, "parent nid: {}, offset: {}", parent, off);
     block_view<erofs_dirent>(meta.get_block(parent, off))[0]->nid = self;
   };
 

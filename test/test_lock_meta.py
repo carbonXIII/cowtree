@@ -10,6 +10,7 @@ def erofs_cat(fs, path):
 def test_lock_meta():
     SMALL = b'hello, repo!\n'
     SMALL2 = b'hello again, repo!\n'
+    BLOCK = bytearray([ord(x) for x in ['r', 'e', 'p', 'o']] * (4092 // 4))
 
     with ostree.make_repo() as repo:
         os.mkdir(repo / 'tree')
@@ -21,6 +22,7 @@ def test_lock_meta():
             'foo/small.txt': SMALL,
             'foo/small2.txt': SMALL2,
             'bar/small.txt': SMALL,
+            'bar/block.txt': BLOCK,
         }
 
         for f,content in test_files.items():

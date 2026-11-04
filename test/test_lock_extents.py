@@ -75,7 +75,6 @@ def clone_dev(name, dev, size):
 
 def test_lock_extents():
     FS_SIZE = 128<<20
-    FILE_SIZE = FS_SIZE // 8
 
     with tempfile.TemporaryDirectory() as _root:
         root = Path(_root)
@@ -83,16 +82,24 @@ def test_lock_extents():
             with ostree.make_repo(root / 'mnt') as repo:
                 # create large test file
                 os.mkdir(repo / 'tree')
-                with open(repo / 'tree/big.bin', 'wb') as f:
-                    f.truncate(FILE_SIZE)
-                    os.pwrite(f.fileno(),  b'START', 0)
-                    os.pwrite(f.fileno(),  b'MIDDLE', FILE_SIZE // 2)
-                    os.pwrite(f.fileno(),  b'END', FILE_SIZE - 3)
+
+                test_files = {
+                    'big.bin': [FS_SIZE // 8 + 7],
+                    'odd.bin': [4096 + 7],
+                    'block.bin': [4095],
+                }
+                for name, data  in test_files.items():
+                    size = data[0]
+                    with open(repo / 'tree' / name, 'wb') as f:
+                        f.truncate(data[0])
+                        os.pwrite(f.fileno(),  b'START', 0)
+                        os.pwrite(f.fileno(),  b'MIDDLE', size // 2)
+                        os.pwrite(f.fileno(),  b'END', size - 3)
+
+                    with open(repo / 'tree' / name, 'rb') as f:
+                        test_files[name] += [hashlib.file_digest(f, 'sha256').hexdigest()]
 
                 os.symlink(repo / 'tree/big.bin', repo / 'tree/symlink')
-
-                with open(repo / 'tree/big.bin', 'rb') as f:
-                    expected_hash = hashlib.file_digest(f, 'sha256').hexdigest()
 
                 commit = ostree.commit_tree(repo, 'test', repo / 'tree').strip()
                 print('commit:', commit)
@@ -110,13 +117,17 @@ def test_lock_extents():
                 # remount erofs+btrfs
                 # with sys_mount(erofs_dev, root / 'mnt2', root / 'test.btrfs'):
                 with mount(erofs_dev, root / 'mnt2', '--mkdir', '-t', 'erofs', '-o', 'device={}'.format(repo / 'image/mirror')):
-                    with open(root / 'mnt2/big.bin', 'rb') as f:
-                        got_hash = hashlib.file_digest(f, 'sha256').hexdigest()
-                        assert(expected_hash == got_hash)
+                    for name in test_files.keys():
+                        with open(root / 'mnt2' / name, 'rb') as f:
+                            got_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+                            expected_hash = test_files[name][1]
+                            assert expected_hash == got_hash, '{} != {}'.format(expected_hash, got_hash)
 
                     with open(root / 'mnt2/symlink', 'rb') as f:
                         got_hash = hashlib.file_digest(f, 'sha256').hexdigest()
-                        assert(expected_hash == got_hash)
+                        expected_hash = test_files['big.bin'][1]
+                        assert expected_hash == got_hash, '{} != {}'.format(expected_hash, got_hash)
+
 
 if __name__ == '__main__':
     test_lock_extents()

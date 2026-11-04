@@ -15,4 +15,4 @@ struct MetadataResult {
 };
 
 std::expected<MetadataResult, std::string>
-build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inline_threshold = 512);
+build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inline_threshold = 4096);

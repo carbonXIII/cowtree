@@ -12,7 +12,10 @@
 #include <util/util.hpp>
 
 Extent::Extent(fiemap_extent const& ext)
-  : logical(ext.fe_logical), phys(ext.fe_physical), length(ext.fe_length) {}
+  : logical(ext.fe_logical),
+    phys(ext.fe_physical),
+    length(ext.fe_length),
+    is_tail(ext.fe_flags & FIEMAP_EXTENT_LAST) {}
 
 std::expected<std::vector<Extent>, std::string>
 get_extents(int fd, uint64_t offset, size_t len) {
@@ -35,14 +38,15 @@ get_extents(int fd, uint64_t offset, size_t len) {
     return std::unexpected(fmt::format("fiemap failed: errno={}", errno));
 
   auto ret = std::ranges::to<std::vector<Extent>>(block_view<fiemap_extent>(std::span{buf}.subspan(sizeof(args))) |
-                                                  std::views::transform([](fiemap_extent const& e) { return Extent{e}; }));
+                                                  std::views::transform([&](fiemap_extent const& e) { return Extent{e}; }));
 
   std::ranges::sort(ret, std::less<Extent>{});
   {
     int j = 1;
     for(int i = 0; j < ret.size(); j++) {
       if ((ret[i].logical + ret[i].length == ret[j].logical) &&
-          (ret[i].phys + ret[i].length == ret[j].phys)) {
+          (ret[i].phys + ret[i].length == ret[j].phys) &&
+          !ret[j].is_tail) {
         ret[i].length += ret[j].length;
       } else {
         ++i;

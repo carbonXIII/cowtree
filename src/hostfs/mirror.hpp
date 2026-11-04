@@ -25,7 +25,7 @@ struct DeviceInfo {
 
     if (use_ext_addr) {
       ret.blocks_hi = blocks >> 32;
-      ret.blocks_hi = block_offset >> 32;
+      ret.uniaddr_hi = block_offset >> 32;
     }
 
     copy(tag, std::span{ret.tag, sizeof(ret.tag)});

@@ -31,7 +31,7 @@ namespace erofs {
     return (ino.i_u.c.format & EROFS_CHUNK_FORMAT_BLKBITS_MASK);
   }
 
-  static constexpr uint16_t inode_tail_size(erofs_inode_compact const& ino) {
+  static constexpr size_t inode_tail_size(erofs_inode_compact const& ino) {
     switch (inode_layout(ino)) {
       case EROFS_INODE_FLAT_INLINE: return ino.i_size % BLOCK_SIZE;
       case EROFS_INODE_CHUNK_BASED: {
@@ -62,7 +62,7 @@ namespace erofs {
       .i_format = inode_format(layout),
       .i_xattr_icount = 0,
       .i_mode = (uint16_t)info.mode,
-      .i_nb = { .startblk_hi = (uint16_t)-1, },
+      .i_nb = { .startblk_hi = (uint16_t)0, },
       .i_size = size == -1 ? (uint32_t)info.size : size,
       .i_u = erofs_inode_i_u { .startblk_lo = (uint32_t)-1 },
       .i_ino = (uint32_t)info.ino,
@@ -89,9 +89,8 @@ namespace erofs {
       std::span<std::byte> get_block(std::size_t offset) {
         auto const& ino = get();
         std::size_t tail_size = inode_tail_size(ino);
-        fmt::println(stderr, "size: {}, tail: {}, offset: {}", ino.i_size, tail_size, offset);
 
-        if (inode_layout(ino) == EROFS_INODE_FLAT_INLINE) {
+        if (inode_layout(ino) == EROFS_INODE_FLAT_INLINE || inode_layout(ino) == EROFS_INODE_FLAT_PLAIN) {
           if (offset < ino.i_size - tail_size)
             return p->blocks.get_block(ino.i_u.startblk_lo * BLOCK_SIZE + offset);
 
@@ -119,7 +118,6 @@ namespace erofs {
       if (inlined.size())
         copy(inlined, block.subspan(INODE_SIZE));
 
-      fmt::println(stderr, "nid: {}, size: {}, inlined: {}", ret.nid, ino.i_size, size);
       return ret;
     }
 
@@ -127,8 +125,13 @@ namespace erofs {
       auto ino = inode_from_info(info, EROFS_INODE_FLAT_INLINE, content.size());
       auto tail_size = inode_tail_size(ino);
 
+      if (INODE_SIZE + tail_size > BLOCK_SIZE || tail_size == 0) {
+        ino.i_format = inode_format(EROFS_INODE_FLAT_PLAIN);
+        tail_size = 0;
+      }
+
       if (content.size() > tail_size) {
-        auto body = blocks.allocate(content.size() - tail_size);
+        auto body = blocks.allocate(round_up(content.size() - tail_size, BLOCK_SIZE));
         copy(content.subspan(0, content.size() - tail_size), body);
         ino.i_u.startblk_lo = blocks.get_address(body) / BLOCK_SIZE;
       }

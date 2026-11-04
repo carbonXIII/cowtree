@@ -6,11 +6,11 @@ erofs_super_block make_super_block_ext_addr(SuperBlock sb) {
     .blkszbits = std::countr_zero(erofs::BLOCK_SIZE),
 
     .rb = { .blocks_hi = (uint16_t)(sb.blocks >> 32), },
-    .blocks_lo = (uint16_t)(sb.blocks & ((1 << 16) - 1)),
+    .blocks_lo = (uint32_t)sb.blocks,
 
     .meta_blkaddr = (uint32_t) sb.meta_blkaddr,
 
-    .feature_incompat = EROFS_FEATURE_INCOMPAT_DEVICE_TABLE | EROFS_FEATURE_INCOMPAT_48BIT,
+    .feature_incompat = EROFS_FEATURE_INCOMPAT_DEVICE_TABLE | EROFS_FEATURE_INCOMPAT_48BIT | EROFS_FEATURE_INCOMPAT_CHUNKED_FILE,
 
     .extra_devices = sb.extra_devices,
     .devt_slotoff = sb.devt_slotoff,
@@ -68,7 +68,6 @@ finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
     for (int i = 0; auto device: devices) {
       device_slots[i++] = device(sb.use_ext_addr);
       uint64_t end_block = device.block_offset + (device.sz_bytes + erofs::BLOCK_SIZE - 1) / erofs::BLOCK_SIZE;
-      sb.blocks = std::max(sb.blocks, end_block);
     }
   }
 

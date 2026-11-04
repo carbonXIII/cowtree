@@ -10,6 +10,7 @@ struct Extent {
   uint64_t logical;
   uint64_t phys;
   uint64_t length;
+  bool is_tail;
 
   Extent() = default;
   Extent(struct fiemap_extent const& ext);

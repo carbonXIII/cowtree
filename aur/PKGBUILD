@@ -1,12 +1,12 @@
 pkgname=cowtree
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
 pkgdesc="Leveraging COW filesystem features with ostree to build EROFS images"
 arch=('any')
 url="https://github.com/carbonxiii/cowtree"
 
 source=(
-    "${pkgname}::git+file://${startdir}/../"
+    "${pkgname}::git+file://${startdir}/.."
     "ostree-cpp::git+https://github.com/carbonXIII/ostree-cpp"
     "erofs-utils::git+https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git"
 )

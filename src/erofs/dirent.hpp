@@ -73,4 +73,23 @@ namespace erofs {
 
     return ret;
   }
+
+  static void read_dirents(std::span<std::byte> buf, auto&& f) {
+    for (size_t i = 0; i < buf.size(); i += BLOCK_SIZE) {
+      auto block = buf.subspan(i, std::min(i + BLOCK_SIZE, buf.size()));
+      auto block_ents = block_view<erofs_dirent>(block);
+
+      auto n = block_ents[0]->nameoff / sizeof(erofs_dirent);
+      for (size_t j = 0; j < n; j++) {
+        std::string name {
+          (char*)&block[block_ents[j]->nameoff],
+          (j + 1 < n ? block_ents[j+1]->nameoff : block.size()) - block_ents[j]->nameoff
+        };
+
+        while (name.back() == 0) name.pop_back();
+
+        FORWARD(f)(name, block_ents[j]->nid, block_ents[j]->file_type);
+      }
+    }
+  }
 }

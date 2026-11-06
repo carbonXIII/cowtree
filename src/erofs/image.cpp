@@ -5,6 +5,8 @@ erofs_super_block make_super_block(SuperBlock sb) {
     .magic = EROFS_SUPER_MAGIC_V1,
     .blkszbits = std::countr_zero(erofs::BLOCK_SIZE),
 
+    .sb_extslots = (uint8_t)(round_up(sb.extensions.size() + sizeof(erofs_super_block) - 128, 16) / 16),
+
     .rb = { .blocks_hi = (uint16_t)(sb.blocks >> 32), },
     .blocks_lo = (uint32_t)sb.blocks,
 
@@ -20,12 +22,13 @@ erofs_super_block make_super_block(SuperBlock sb) {
 }
 
 std::expected<SuperBlock, std::string>
-start_filesystem(std::size_t num_devices) {
+start_filesystem(std::size_t num_devices, std::size_t extension_size) {
   SuperBlock sb = {
     .extra_devices = (uint16_t)num_devices,
   };
 
-  auto devt_offset = round_up(EROFS_SUPER_OFFSET + sizeof(erofs_super_block), EROFS_DEVT_SLOT_SIZE);
+  extension_size = round_up(extension_size, 16);
+  auto devt_offset = round_up(EROFS_SUPER_OFFSET + sizeof(erofs_super_block) + extension_size, EROFS_DEVT_SLOT_SIZE);
   sb.devt_slotoff = devt_offset / EROFS_DEVT_SLOT_SIZE;
 
   sb.meta_blkaddr = round_up(devt_offset + sb.extra_devices * EROFS_DEVT_SLOT_SIZE, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
@@ -55,6 +58,10 @@ finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
 
   auto super = make_super_block(sb);
   copy(as_bytes(std::span{&super, 1}), std::span{ret}.subspan(EROFS_SUPER_OFFSET));
+
+  if (sb.extensions.size())
+    copy(sb.extensions, std::span{ret}.subspan(EROFS_SUPER_OFFSET + sizeof(erofs_super_block)));
+
   copy(meta, std::span{ret}.subspan(super.meta_blkaddr * erofs::BLOCK_SIZE));
 
   return ret;

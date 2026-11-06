@@ -15,6 +15,7 @@ struct Extent {
   Extent() = default;
   Extent(struct fiemap_extent const& ext);
   auto operator<=>(Extent const& o) const { return logical <=> o.logical; }
+  auto operator<=>(uint64_t addr) const { return logical <=> addr; }
 };
 
 std::expected<std::vector<Extent>, std::string>

@@ -22,15 +22,18 @@ build_image_from_commit(std::filesystem::path const& path, std::string const& co
   mkdirat(repo.get_root_dfd(), "image", 0777);
   Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE, 0755)));
 
-  auto super = TRY(start_filesystem(1));
+  auto super = TRY(start_filesystem(1, sizeof(cowtree_index_extension)));
 
-  TreeWriter writer { .mirror = mirror  };
-  auto meta = TRY(writer.write(super.meta_blkaddr * erofs::BLOCK_SIZE, commit));
+  TreeWriter writer(mirror, super.meta_blkaddr * erofs::BLOCK_SIZE);
+  auto root = TRY(writer.write(commit));
+
+  auto index = TRY(writer.write_index());
+  super.extensions = std::as_bytes(std::span{&index, 1});
 
   fmt::println(stderr, "mirror size: {}", mirror.size);
   auto dev = std::array { mirror.device_info(), };
 
-  return finish_filesystem(super, meta.root_nid, meta.meta, dev);
+  return finish_filesystem(super, root, writer.finalize(), dev);
 }
 
 int main(int argc, char** argv) {

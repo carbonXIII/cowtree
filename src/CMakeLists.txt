@@ -4,7 +4,7 @@ find_package(argparse REQUIRED)
 
 add_executable(cowtree
   driver/main.cpp
-  driver/meta.cpp
+  driver/tree.cpp
   hostfs/extents.cpp
   hostfs/mirror.cpp
   erofs/image.cpp)

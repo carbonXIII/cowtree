@@ -12,7 +12,7 @@
 #include <hostfs/mirror.hpp>
 #include <erofs/image.hpp>
 
-#include "meta.hpp"
+#include "tree.hpp"
 
 std::expected<std::vector<std::byte>, std::string>
 build_image_from_commit(std::filesystem::path const& path, std::string const& commit_csum) {
@@ -23,7 +23,9 @@ build_image_from_commit(std::filesystem::path const& path, std::string const& co
   Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE, 0755)));
 
   auto super = TRY(start_filesystem(1));
-  auto meta = TRY(build_meta(super.meta_blkaddr * erofs::BLOCK_SIZE, commit, mirror));
+
+  TreeWriter writer { .mirror = mirror  };
+  auto meta = TRY(writer.write(super.meta_blkaddr * erofs::BLOCK_SIZE, commit));
 
   fmt::println(stderr, "mirror size: {}", mirror.size);
   auto dev = std::array { mirror.device_info(), };

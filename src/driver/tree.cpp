@@ -1,4 +1,4 @@
-#include "meta.hpp"
+#include "tree.hpp"
 
 #include <erofs/dirent.hpp>
 #include <erofs/meta.hpp>
@@ -7,7 +7,7 @@
 #include <deque>
 
 std::expected<ChunkMap, std::string>
-try_get_chunks(ostree::File& file, FileInfo const& info, Mirror& mirror) {
+TreeWriter::try_get_chunks(ostree::File& file, FileInfo const& info) {
   if (auto fd = file.get_fd(); !fd.has_value()) {
     return std::unexpected(fmt::format("failed to get file ({}) extents: {}", file.csum, fd.error()));
   } else {
@@ -16,7 +16,7 @@ try_get_chunks(ostree::File& file, FileInfo const& info, Mirror& mirror) {
 }
 
 std::expected<std::span<std::byte const>, std::string>
-try_get_inline(ostree::File& file, FileInfo const& info, std::size_t inline_threshold) {
+TreeWriter::try_get_inline(ostree::File& file, FileInfo const& info) {
   std::span<std::byte const> content;
 
   if(info.is_link() || info.size <= inline_threshold) {
@@ -30,8 +30,8 @@ try_get_inline(ostree::File& file, FileInfo const& info, std::size_t inline_thre
   return std::unexpected("");
 }
 
-std::expected<MetadataResult, std::string>
-build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inline_threshold) {
+std::expected<TreeWriter::Result, std::string>
+TreeWriter::write(size_t base_addr, ostree::Commit& commit) {
   struct Entry {
     FileInfo info;
     std::optional<ostree::CommitIter> iter;
@@ -40,13 +40,11 @@ build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inli
     uint8_t parent_type = EROFS_FT_DIR;
   };
 
-  MetadataResult ret;
+  Result ret;
   erofs::MetadataBuilder meta(base_addr);
 
   std::deque<Entry> q;
-  std::map<std::string, erofs::nid_t> nodes;
 
-  uint32_t next_ino = 1;
   q.emplace_front(FileInfo { .mode = S_IFDIR,}, commit.begin());
 
   auto complete_link = [&](erofs::nid_t self, erofs::nid_t parent, size_t off) {
@@ -112,15 +110,15 @@ build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inli
       if (ret.root_nid == -1)
         ret.root_nid = nid;
     } else {
-      if (auto it = nodes.find(entry.csum); it != nodes.end()) {
+      if (auto it = index.find(entry.csum); it != index.end()) {
         nid = it->second;
       } else {
         entry.info.ino = next_ino++;
 
         if (auto file = commit.get_file(entry.csum); file.has_value()) {
-          if (auto content = try_get_inline(*file, entry.info, inline_threshold); content.has_value()) {
+          if (auto content = try_get_inline(*file, entry.info); content.has_value()) {
             nid = meta.push_inline(entry.info, *content);
-          } else if (auto chunks = try_get_chunks(*file, entry.info, mirror); chunks.has_value()) {
+          } else if (auto chunks = try_get_chunks(*file, entry.info); chunks.has_value()) {
             nid = meta.push_chunks(entry.info, chunks.value());
           } else {
             fmt::println(stderr, "warning: failed to push file content: '{}' and '{}'", content.error(), chunks.error());
@@ -130,7 +128,7 @@ build_meta(size_t base_addr, ostree::Commit& commit, Mirror& mirror, size_t inli
         }
 
         if (nid == -1) nid = meta.push_inline(entry.info);
-        nodes[entry.csum] = nid;
+        index[entry.csum] = nid;
       }
     }
 

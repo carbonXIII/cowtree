@@ -38,13 +38,13 @@ start_filesystem(std::size_t num_devices, std::size_t extension_size) {
 
 std::expected<std::vector<std::byte>, std::string>
 finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
-                  std::span<std::byte const> meta, std::span<DeviceInfo const> devices) {
+                  std::size_t meta_size, std::span<DeviceInfo const> devices) {
   sb.root_nid = root_nid;
 
-  auto meta_size = round_up(meta.size(), erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
+  meta_size = round_up(meta_size, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
   fmt::println(stderr, "super ({} blocks) + meta ({} blocks)", sb.meta_blkaddr, meta_size);
   sb.blocks = sb.meta_blkaddr + meta_size;
-  std::vector<std::byte> ret(sb.blocks * erofs::BLOCK_SIZE);
+  std::vector<std::byte> ret((sb.devt_slotoff + devices.size()) * EROFS_DEVT_SLOT_SIZE);
 
   {
     auto device_slots = block_view<erofs_deviceslot>(std::span{ret}.subspan(sb.devt_slotoff * EROFS_DEVT_SLOT_SIZE));
@@ -61,8 +61,6 @@ finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
 
   if (sb.extensions.size())
     copy(sb.extensions, std::span{ret}.subspan(EROFS_SUPER_OFFSET + sizeof(erofs_super_block)));
-
-  copy(meta, std::span{ret}.subspan(super.meta_blkaddr * erofs::BLOCK_SIZE));
 
   return ret;
 }

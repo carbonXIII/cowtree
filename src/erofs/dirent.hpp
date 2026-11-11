@@ -58,6 +58,7 @@ namespace erofs {
       size_t nameoff = (i - start) * sizeof(erofs_dirent);
       for (int j = start; j < i; ++j) {
         block_ents[j - start] = erofs_dirent {
+          .nid = 0,
           .nameoff = (uint16_t)nameoff,
           .file_type = ents[j].second.type,
         };
@@ -76,8 +77,10 @@ namespace erofs {
 
   static void read_dirents(std::span<std::byte> buf, auto&& f) {
     for (size_t i = 0; i < buf.size(); i += BLOCK_SIZE) {
-      auto block = buf.subspan(i, std::min(i + BLOCK_SIZE, buf.size()));
+      auto block = buf.subspan(i, std::min(i + BLOCK_SIZE, buf.size()) - i);
       auto block_ents = block_view<erofs_dirent>(block);
+
+      if (block_ents.empty()) continue;
 
       auto n = block_ents[0]->nameoff / sizeof(erofs_dirent);
       for (size_t j = 0; j < n; j++) {

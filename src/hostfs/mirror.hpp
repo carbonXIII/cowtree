@@ -62,3 +62,5 @@ struct Mirror {
     };
   }
 };
+
+std::expected<std::monostate, std::string> clone_range(int dest, struct file_clone_range range);

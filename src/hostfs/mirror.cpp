@@ -6,7 +6,7 @@
 
 #include <fcntl.h>
 
-static std::expected<void, std::string> clone_range(int dest, file_clone_range range) {
+std::expected<std::monostate, std::string> clone_range(int dest, file_clone_range range) {
     if (ioctl(dest, FICLONERANGE, &range) != 0)
       return std::unexpected(fmt::format("ficlonerange(dest={}, src={}, offset={:X}, len={:X}, dest={:X}) failed: errno={}",
                                          dest,
@@ -21,7 +21,7 @@ static std::expected<void, std::string> clone_range(int dest, file_clone_range r
 
 /// FICLONERANGE only works with ranges smaller than a block (e.g. tails) when the src and dst range are aligned with the end of the file.
 /// If necessary, make a temporary clone at the end of the mirror.
-static std::expected<void, std::string> clone_tail_hacky(int dest, file_clone_range range, uint64_t len) {
+static std::expected<std::monostate, std::string> clone_tail_hacky(int dest, file_clone_range range, uint64_t len) {
   range.src_length = len - range.src_offset;
   auto next_length = round_up(range.src_length, erofs::BLOCK_SIZE);
   size_t tail_size = range.src_length % erofs::BLOCK_SIZE;
@@ -51,8 +51,7 @@ static std::expected<void, std::string> clone_tail_hacky(int dest, file_clone_ra
     if (auto ret = clone_range(dest, range); !ret.has_value())
       return ret;
 
-    fallocate(dest, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
-              std::max(eof, uint64_t { range.dest_offset + range.src_length }), old_offset + next_length);
+    ftruncate(dest, std::max(eof, uint64_t { range.dest_offset + range.src_length }));
   }
 
   return {};

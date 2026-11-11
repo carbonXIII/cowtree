@@ -4,36 +4,34 @@
 #include <ostree/commit.hpp>
 #include <argparse/argparse.hpp>
 
-#include <iostream>
-#include <fstream>
-
 #include <fcntl.h>
+#include <sys/sendfile.h>
 
 #include <hostfs/mirror.hpp>
 #include <erofs/image.hpp>
+#include <util/splice.hpp>
 
-#include "tree.hpp"
+#include <driver/package.hpp>
 
-std::expected<std::vector<std::byte>, std::string>
-build_image_from_commit(std::filesystem::path const& path, std::string const& commit_csum) {
+std::expected<std::monostate, std::string>
+build_image_from_commit(std::filesystem::path const& path,
+                        std::string const& commit_csum,
+                        bool as_index = false,
+                        int out_fd = -1) {
   auto repo = TRY(ostree::Repo::get(path));
-  auto commit = TRY(repo.load_commit(commit_csum));
+
 
   mkdirat(repo.get_root_dfd(), "image", 0777);
   Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE, 0755)));
 
-  auto super = TRY(start_filesystem(1, sizeof(cowtree_index_extension)));
+  auto pkg = TRY(Package::load(repo, mirror, commit_csum));
 
-  TreeWriter writer(mirror, super.meta_blkaddr * erofs::BLOCK_SIZE);
-  auto root = TRY(writer.write(commit));
+  auto fd = TRY(pkg.build_or_find_image(as_index));
 
-  auto index = TRY(writer.write_index());
-  super.extensions = std::as_bytes(std::span{&index, 1});
+  if (out_fd >= 0)
+    TRY(splice_files(fd, out_fd, 0));
 
-  fmt::println(stderr, "mirror size: {}", mirror.size);
-  auto dev = std::array { mirror.device_info(), };
-
-  return finish_filesystem(super, root, writer.finalize(), dev);
+  return {};
 }
 
 int main(int argc, char** argv) {
@@ -41,6 +39,7 @@ int main(int argc, char** argv) {
   struct {
     std::string repo, commit;
     std::string output;
+    bool as_index;
   } build_image;
 
   {
@@ -52,6 +51,7 @@ int main(int argc, char** argv) {
     _build_image.add_argument("repo").help("Path to ostree repo").store_into(build_image.repo);
     _build_image.add_argument("commit").help("ostree commit checksum").store_into(build_image.commit);
     _build_image.add_argument("-o").help("Output file. Use '-' to redirect to stdout").store_into(build_image.output);
+    _build_image.add_argument("--as-index").help("Map from file checksums to files replaces the normal tree.").flag().store_into(build_image.as_index);
     prog.add_subparser(_build_image);
 
     try {
@@ -67,27 +67,23 @@ int main(int argc, char** argv) {
   }
 
   if (cmd == BUILD_IMAGE) {
-    if (auto res = build_image_from_commit(build_image.repo, build_image.commit); !res.has_value()) {
+    int out_fd = -1;
+
+    if (build_image.output == "-") {
+      out_fd = fileno(stdout);
+    } else if(build_image.output.size()) {
+      out_fd = open(build_image.output.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0755);
+      if (out_fd < 0)
+        fmt::println(stderr, "WARN: failed to open output file: errno={}", errno);
+    }
+
+    if (auto res = build_image_from_commit(build_image.repo, build_image.commit, build_image.as_index, out_fd); !res.has_value()) {
       fmt::println(stderr, "error: {}", res.error());
       return -1;
-    } else {
-      auto do_write = [&](auto& os) {
-        os.write((char const*)res.value().data(), res.value().size());
-      };
-
-      if (build_image.output == "-") {
-        do_write(std::cout);
-      } else {
-        if (build_image.output.empty()) {
-          build_image.output = fmt::format("{}/image/{}.erofs", build_image.repo, build_image.commit);
-        }
-
-        std::ofstream fout(build_image.output);
-        do_write(fout);
-      }
-
-      return 0;
     }
+
+    if (out_fd >= 0 && out_fd != fileno(stdout))
+      close(out_fd);
   }
 
   return 0;

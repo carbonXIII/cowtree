@@ -25,6 +25,12 @@ struct ChunkMap {
   int shift;
   size_t size;
   std::vector<uint32_t> indexes;
+
+  size_t operator()(size_t addr, size_t block) const {
+    auto idx = addr >> shift;
+    if (idx >= indexes.size()) return -1;
+    return indexes[addr >> shift] * block + (addr & ((1ull << shift) - 1));
+  }
 };
 
 struct BlockMap {

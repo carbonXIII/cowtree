@@ -18,4 +18,4 @@ start_filesystem(std::size_t num_devices, std::size_t extension_size);
 
 std::expected<std::vector<std::byte>, std::string>
 finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
-                  std::span<std::byte const> meta, std::span<DeviceInfo const> devices);
+                  std::size_t meta_size, std::span<DeviceInfo const> devices);

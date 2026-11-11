@@ -6,30 +6,23 @@
 #include <hostfs/extents.hpp>
 #include <hostfs/mirror.hpp>
 
-#include <erofs/meta.hpp>
+#include <driver/index.hpp>
 
-struct cowtree_index_extension {
-  static constexpr uint32_t MAGIC = 0x78646E69;
-  uint32_t magic = MAGIC; // 'INDX'
-  erofs::nid_t index_nid = -1;
-};
+#include <erofs/meta.hpp>
 
 struct TreeWriter {
   Mirror& mirror;
+  FileIndex& index;
   erofs::MetadataBuilder meta;
 
   size_t inline_threshold = 4096;
   uint32_t next_ino = 1;
 
-  struct IndexEntry { erofs::nid_t nid; uint8_t filetype; };
-  std::map<std::string, IndexEntry> index;
-
-  TreeWriter(Mirror& mirror, size_t base_addr): mirror(mirror), meta(base_addr) {}
+  TreeWriter(Mirror& mirror, FileIndex& index, size_t base_addr, size_t offset = 0):
+    mirror(mirror), index(index), meta(base_addr, offset) {}
 
   std::expected<erofs::nid_t, std::string> write(ostree::Commit& commit);
-
   std::expected<cowtree_index_extension, std::string> write_index();
-  std::expected<std::monostate, std::string> read_index(int fd, erofs::nid_t nid);
 
   std::vector<std::byte> finalize() { return meta.finalize(); }
 

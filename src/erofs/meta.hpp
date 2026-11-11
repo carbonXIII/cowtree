@@ -80,7 +80,7 @@ namespace erofs {
       operator nid_t() { return nid; }
 
       erofs_inode_compact& get() {
-        return block_view<erofs_inode_compact>(p->blocks.get_block(nid * INODE_SIZE + p->blocks.base_addr))[0];
+        return block_view<erofs_inode_compact>(p->blocks.get_block(nid * INODE_SIZE + p->real_base))[0];
       }
 
       erofs_inode_compact* operator->() { return &get(); }
@@ -97,14 +97,15 @@ namespace erofs {
           offset -= ino.i_size - tail_size;
         }
 
-        auto addr = (nid + 1) * INODE_SIZE + p->blocks.base_addr + offset;
+        auto addr = (nid + 1) * INODE_SIZE + p->real_base + offset;
         return p->blocks.get_block(addr, tail_size - offset);
       }
     };
 
+    std::size_t real_base;
     BlockAllocator<INODE_SIZE, BLOCK_SIZE> blocks;
 
-    MetadataBuilder(std::size_t base_addr): blocks(base_addr) {}
+    MetadataBuilder(std::size_t base_addr, std::size_t offset = 0): real_base(base_addr - offset), blocks(base_addr) {}
 
     Node get(nid_t nid) { return { this, nid }; }
     std::span<std::byte> get_block(nid_t nid, size_t offset) { return get(nid).get_block(offset); }
@@ -112,7 +113,7 @@ namespace erofs {
     Node push(erofs_inode_compact ino, std::span<std::byte const> inlined) {
       auto size = INODE_SIZE + inode_tail_size(ino);
       auto block = blocks.allocate(size);
-      Node ret = get((blocks.get_address(block) - blocks.base_addr) / INODE_SIZE);
+      Node ret = get((blocks.get_address(block) - real_base) / INODE_SIZE);
       ret.get() = ino;
 
       if (inlined.size())

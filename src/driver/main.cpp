@@ -24,6 +24,12 @@ build_image_from_commit(std::filesystem::path const& path,
   mkdirat(repo.get_root_dfd(), "image", 0777);
   Mirror mirror(TRY(repo.get_fd("image/mirror", O_CREAT | O_RDWR | O_LARGEFILE, 0755)));
 
+  if (auto res = mirror.trim(); res.has_value()) {
+    fmt::println(stderr, "trimmed 0x{:X} bytes from mirror, new size 0x{:X}", res.value(), mirror.size);
+  } else {
+    fmt::println(stderr, "warning: could not trim mirror: {}", res.error());
+  }
+
   auto pkg = TRY(Package::load(repo, mirror, commit_csum));
 
   auto fd = TRY(pkg.build_or_find_image(as_index));

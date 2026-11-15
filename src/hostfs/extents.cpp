@@ -15,7 +15,9 @@ Extent::Extent(fiemap_extent const& ext)
   : logical(ext.fe_logical),
     phys(ext.fe_physical),
     length(ext.fe_length),
-    is_tail(ext.fe_flags & FIEMAP_EXTENT_LAST) {}
+    is_tail(ext.fe_flags & FIEMAP_EXTENT_LAST),
+    is_shared(ext.fe_flags & FIEMAP_EXTENT_SHARED)
+{}
 
 std::expected<std::vector<Extent>, std::string>
 get_extents(int fd, uint64_t offset, size_t len) {

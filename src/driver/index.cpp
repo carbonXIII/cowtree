@@ -2,6 +2,7 @@
 
 #include <erofs/dirent.hpp>
 #include <util/util.hpp>
+#include <util/io.hpp>
 #include <hostfs/mirror.hpp>
 
 #include <fmt/format.h>
@@ -9,23 +10,6 @@
 #include <linux/fs.h>
 #undef BLOCK_SIZE
 
-std::expected<std::monostate, std::string>
-read_at(int fd, std::span<std::byte> buf, size_t offset) {
-  auto ret = pread(fd, buf.data(), buf.size(), offset);
-
-  if (ret != buf.size())
-    return std::unexpected(fmt::format("pread failed to read {} bytes, fd={} @ 0x{:X}, ret={}, errno={}",
-                                       buf.size(), fd, offset, ret, errno));
-
-  return {};
-}
-
-std::expected<std::monostate, std::string>
-read_at(int fd, auto& out, size_t offset) {
-  return read_at(fd, as_writable_bytes(std::span{&out, 1}), offset);
-}
-
-/// offset: (mirror.block_offset - meta_blkaddr) * erofs::BLOCK_SIZE
 std::expected<std::monostate, std::string>
 FileIndex::import_image(int src, int dest, std::size_t& offset, std::size_t dest_meta_addr) {
   uint64_t eof;
@@ -80,13 +64,15 @@ FileIndex::import_image(int src, int dest, std::size_t& offset, std::size_t dest
   if (tail_size > 0)
     TRY(read_at(src, std::span{content}.subspan(head_size), ino_addr + erofs::INODE_SIZE));
 
+  auto blocks = sb.blocks_lo | (uint64_t(sb.rb.blocks_hi) << 32);
+  auto length = (blocks * erofs::BLOCK_SIZE < eof) ? (blocks - sb.meta_blkaddr) * erofs::BLOCK_SIZE : 0;
   TRY(clone_range(dest, file_clone_range {
         .src_fd = src,
         .src_offset = sb.meta_blkaddr * erofs::BLOCK_SIZE,
-        .src_length = 0,
+        .src_length = length,
         .dest_offset = offset,
       }));
-  size_t start = std::exchange(offset, offset + (eof - sb.meta_blkaddr * erofs::BLOCK_SIZE));
+  size_t start = std::exchange(offset, offset + (blocks - sb.meta_blkaddr) * erofs::BLOCK_SIZE);
 
   erofs::read_dirents(std::span{content}, [&](std::string_view name, erofs::nid_t nid, uint8_t filetype) {
     auto addr = /* sb.meta_blkaddr * erofs::BLOCK_SIZE + */ nid * erofs::INODE_SIZE;

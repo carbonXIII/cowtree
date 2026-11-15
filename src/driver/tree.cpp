@@ -2,16 +2,23 @@
 
 #include <erofs/dirent.hpp>
 #include <erofs/meta.hpp>
+#include <util/io.hpp>
 
 #include <fmt/format.h>
 #include <deque>
+
+#include <linux/fs.h>
+#undef BLOCK_SIZE
 
 std::expected<ChunkMap, std::string>
 TreeWriter::try_get_chunks(ostree::File& file, FileInfo const& info) {
   if (auto fd = file.get_fd(); !fd.has_value()) {
     return std::unexpected(fmt::format("failed to get file ({}) extents: {}", file.csum, fd.error()));
   } else {
-    return mirror.insert_file(fd.value(), info.size);
+    auto ret = TRY(mirror.insert_file(fd.value(), info.size));
+    if (ret.tail.has_value())
+      appendix.push_back(*ret.tail);
+    return ret;
   }
 }
 
@@ -159,4 +166,21 @@ TreeWriter::write_index() {
   }
 
   return ret;
+}
+
+std::expected<std::size_t, std::string>
+TreeWriter::write_appendix(int fd, std::size_t& pos) {
+  auto start = pos;
+  for (auto const& e: appendix) {
+    TRY(clone_range(fd, file_clone_range {
+          .src_fd = (int)mirror.mirror_fd,
+          .src_offset = e.phys,
+          .src_length = e.length,
+          .dest_offset = pos,
+        }));
+
+    pos += e.length;
+  }
+
+  return pos - start;
 }

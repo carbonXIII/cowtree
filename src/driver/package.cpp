@@ -11,7 +11,7 @@ Package::build_image(bool as_index) {
 
   FileIndex index;
   size_t meta_addr = super.meta_blkaddr * erofs::BLOCK_SIZE;
-  size_t pos = meta_addr + erofs::BLOCK_SIZE;
+  size_t pos = meta_addr;
 
   if (auto packages = commit.get_metadata<std::vector<std::string>>(std::string{METADATA_KEY_PACKAGES});
       packages.has_value()) {
@@ -19,8 +19,6 @@ Package::build_image(bool as_index) {
       if (auto ret = import_package(index, pos, meta_addr, pkg); !ret.has_value())
         fmt::println(stderr, "INFO: Could not load metadata for {}: {}", pkg, ret.error());
     }
-  } else {
-    fmt::println(stderr, "INFO: No {} in metadata", METADATA_KEY_PACKAGES);
   }
 
   TreeWriter tree(mirror, index, pos, pos - meta_addr);
@@ -32,7 +30,6 @@ Package::build_image(bool as_index) {
     auto index = TRY(tree.write_index());
     super.extensions = std::as_bytes(std::span{&index, 1});
 
-    fmt::println(stderr, "mirror size: 0x{:X} bytes", mirror.size);
     auto dev = std::array { mirror.device_info(), };
 
     meta = tree.finalize();
@@ -46,9 +43,14 @@ Package::build_image(bool as_index) {
   if (auto written = write(image_fd, meta.data(), meta.size()); written < meta.size())
     return std::unexpected(fmt::format("Failed to write metadata blocks: written={} errno={}", written, errno));
 
-  fsync(image_fd);
+  pos += meta.size();
+  auto appendix_size = TRY(tree.write_appendix(image_fd, pos));
+  fmt::println(stderr, "appendix: 0x{:X} bytes", appendix_size);
+  fmt::println(stderr, "total size: 0x{:X} bytes", pos);
 
-  size = pos + meta.size();
+  // fsync(image_fd);
+
+  size = pos;
   return {};
 }
 

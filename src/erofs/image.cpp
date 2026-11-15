@@ -42,7 +42,6 @@ finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
   sb.root_nid = root_nid;
 
   meta_size = round_up(meta_size, erofs::BLOCK_SIZE) / erofs::BLOCK_SIZE;
-  fmt::println(stderr, "super ({} blocks) + meta ({} blocks)", sb.meta_blkaddr, meta_size);
   sb.blocks = sb.meta_blkaddr + meta_size;
   std::vector<std::byte> ret((sb.devt_slotoff + devices.size()) * EROFS_DEVT_SLOT_SIZE);
 
@@ -53,8 +52,6 @@ finish_filesystem(SuperBlock sb, erofs::nid_t root_nid,
       uint64_t end_block = device.block_offset + (device.sz_bytes + erofs::BLOCK_SIZE - 1) / erofs::BLOCK_SIZE;
     }
   }
-
-  fmt::println(stderr, "total blocks: {}", sb.blocks);
 
   auto super = make_super_block(sb);
   copy(as_bytes(std::span{&super, 1}), std::span{ret}.subspan(EROFS_SUPER_OFFSET));

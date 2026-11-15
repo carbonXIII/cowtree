@@ -51,15 +51,19 @@ static std::expected<std::monostate, std::string> clone_tail_hacky(int dest, fil
     if (auto ret = clone_range(dest, range); !ret.has_value())
       return ret;
 
-    ftruncate(dest, std::max(eof, uint64_t { range.dest_offset + range.src_length }));
+    fallocate(dest, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+              std::max(eof, uint64_t { range.dest_offset + range.src_length }), old_offset + next_length);
   }
 
   return {};
 }
 
 std::expected<ChunkMap, std::string>
-Mirror::insert_file(int fd, uint64_t len) {
+Mirror::insert_file(int fd, uint64_t len, int max_shift) {
   auto extents = TRY(get_extents(fd, 0, len));
+
+  auto tail_size = len % erofs::BLOCK_SIZE;
+  std::optional<Extent> tail;
 
   for (auto const& e: extents) {
     file_clone_range range = {
@@ -72,6 +76,13 @@ Mirror::insert_file(int fd, uint64_t len) {
     if (e.is_tail && range.src_offset + range.src_length > len) {
       if(auto ret = clone_tail_hacky(mirror_fd, range, len); !ret.has_value())
         return std::unexpected(ret.error());
+
+      if (tail_size > 0) {
+        tail = e;
+        tail->logical = round_up(tail->logical + tail->length, erofs::BLOCK_SIZE) - erofs::BLOCK_SIZE;
+        tail->phys = round_up(tail->phys + tail->length, erofs::BLOCK_SIZE) - erofs::BLOCK_SIZE;
+        tail->length = erofs::BLOCK_SIZE;
+      }
     } else {
       fallocate(mirror_fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, range.dest_offset, e.length);
       if (auto ret = clone_range(mirror_fd, range); !ret.has_value())
@@ -82,5 +93,29 @@ Mirror::insert_file(int fd, uint64_t len) {
   }
 
   BlockMap block_map { .size = erofs::BLOCK_SIZE, .offset = block_offset };
-  return extents_to_chunks(extents, len, erofs::CHUNK_MIN_SHIFT, erofs::CHUNK_MAX_SHIFT, block_map);
+  auto ret = TRY(extents_to_chunks(extents, len, erofs::CHUNK_MIN_SHIFT, max_shift, block_map));
+  ret.tail = tail;
+  return ret;
+}
+
+std::expected<std::size_t, std::string> Mirror::trim() {
+  if (!size)
+    return 0;
+
+  auto extents = TRY(get_extents(mirror_fd, 0, size));
+
+  std::size_t saved = 0;
+  std::size_t new_size = 0;
+  for (auto const& e: extents) {
+    if (!e.is_shared) {
+      fallocate(mirror_fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, e.logical, e.length);
+      saved += e.length;
+      continue;
+    }
+
+    new_size = std::max(new_size, e.logical + e.length);
+  }
+
+  ftruncate(mirror_fd, new_size);
+  return saved;
 }

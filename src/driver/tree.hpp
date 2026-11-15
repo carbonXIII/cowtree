@@ -18,11 +18,14 @@ struct TreeWriter {
   size_t inline_threshold = 4096;
   uint32_t next_ino = 1;
 
+  std::vector<Extent> appendix;
+
   TreeWriter(Mirror& mirror, FileIndex& index, size_t base_addr, size_t offset = 0):
     mirror(mirror), index(index), meta(base_addr, offset) {}
 
   std::expected<erofs::nid_t, std::string> write(ostree::Commit& commit);
   std::expected<cowtree_index_extension, std::string> write_index();
+  std::expected<std::size_t, std::string> write_appendix(int fd, std::size_t& offset);
 
   std::vector<std::byte> finalize() { return meta.finalize(); }
 

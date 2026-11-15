@@ -5,12 +5,14 @@
 #include <string>
 #include <cstdint>
 #include <span>
+#include <optional>
 
 struct Extent {
   uint64_t logical;
   uint64_t phys;
   uint64_t length;
   bool is_tail;
+  bool is_shared;
 
   Extent() = default;
   Extent(struct fiemap_extent const& ext);
@@ -25,6 +27,7 @@ struct ChunkMap {
   int shift;
   size_t size;
   std::vector<uint32_t> indexes;
+  std::optional<Extent> tail;
 
   size_t operator()(size_t addr, size_t block) const {
     auto idx = addr >> shift;

@@ -9,7 +9,8 @@ add_executable(cowtree
   driver/package.cpp
   hostfs/extents.cpp
   hostfs/mirror.cpp
-  erofs/image.cpp)
+  erofs/image.cpp
+  erofs/meta.cpp)
 
 target_include_directories(cowtree PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

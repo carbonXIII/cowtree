@@ -11,6 +11,8 @@
 #include <util/util.hpp>
 #include "extents.hpp"
 
+std::expected<std::monostate, std::string> clone_range(int dest, struct file_clone_range range);
+
 struct DeviceInfo {
   std::string tag;
   size_t sz_bytes;
@@ -51,8 +53,8 @@ struct Mirror {
     }
   }
 
-  std::expected<ChunkMap, std::string>
-  insert_file(int fd, uint64_t len);
+  std::expected<ChunkMap, std::string> insert_file(int fd, uint64_t len, int max_shift = erofs::CHUNK_MAX_SHIFT);
+  std::expected<std::size_t, std::string> trim();
 
   DeviceInfo device_info() {
     return DeviceInfo {
@@ -62,5 +64,3 @@ struct Mirror {
     };
   }
 };
-
-std::expected<std::monostate, std::string> clone_range(int dest, struct file_clone_range range);

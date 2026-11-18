@@ -3,6 +3,7 @@ import ostree
 import subprocess
 
 BLOCK_SIZE = 4096
+INODE_SIZE = 32
 
 def erofs_cat(fs, path):
     return subprocess.check_output(['dump.erofs', fs, '--path={}'.format(path), '--cat'])
@@ -10,7 +11,7 @@ def erofs_cat(fs, path):
 def test_lock_meta():
     SMALL = b'hello, repo!\n'
     SMALL2 = b'hello again, repo!\n'
-    BLOCK = bytearray([ord(x) for x in ['r', 'e', 'p', 'o']] * (4092 // 4))
+    BLOCK = bytearray([ord(x) for x in ['r', 'e', 'p', 'o']] * ((BLOCK_SIZE - INODE_SIZE - 4) // 4))
 
     with ostree.make_repo() as repo:
         os.mkdir(repo / 'tree')

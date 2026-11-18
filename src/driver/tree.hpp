@@ -15,7 +15,7 @@ struct TreeWriter {
   FileIndex& index;
   erofs::MetadataBuilder meta;
 
-  size_t inline_threshold = 4096;
+  size_t inline_threshold = erofs::BLOCK_SIZE - erofs::INODE_SIZE;
   uint32_t next_ino = 1;
 
   std::vector<Extent> appendix;

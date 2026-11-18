@@ -23,7 +23,7 @@ struct TreeWriter {
   TreeWriter(Mirror& mirror, FileIndex& index, size_t base_addr, size_t offset = 0):
     mirror(mirror), index(index), meta(base_addr, offset) {}
 
-  std::expected<erofs::nid_t, std::string> write(ostree::Commit& commit);
+  std::expected<erofs::nid_t, std::string> write(ostree::Commit& commit, bool files_only = false);
   std::expected<cowtree_index_extension, std::string> write_index();
   std::expected<std::size_t, std::string> write_appendix(int fd, std::size_t& offset);
 

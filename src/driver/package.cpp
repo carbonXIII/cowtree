@@ -26,7 +26,7 @@ Package::build_image(bool as_index) {
   std::vector<std::byte> sb;
   std::vector<std::byte> meta;
   {
-    auto root = TRY(tree.write(commit));
+    auto root = TRY(tree.write(commit, as_index));
     auto index = TRY(tree.write_index());
     super.extensions = std::as_bytes(std::span{&index, 1});
 

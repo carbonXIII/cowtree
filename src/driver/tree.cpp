@@ -38,7 +38,7 @@ TreeWriter::try_get_inline(ostree::File& file, FileInfo const& info) {
 }
 
 std::expected<erofs::nid_t, std::string>
-TreeWriter::write(ostree::Commit& commit) {
+TreeWriter::write(ostree::Commit& commit, bool files_only) {
   struct Entry {
     FileInfo info;
     std::optional<ostree::CommitIter> iter;
@@ -99,23 +99,25 @@ TreeWriter::write(ostree::Commit& commit) {
           }, *it);
       }
 
-      if (entry.link.first != -1)
-        kids.emplace_back("..", entry.parent_type);
+      if (!files_only) {
+        if (entry.link.first != -1)
+          kids.emplace_back("..", entry.parent_type);
 
-      auto dirs = erofs::build_directory(kids);
+        auto dirs = erofs::build_directory(kids);
 
-      nid = meta.push_inline(entry.info, std::as_bytes(std::span{dirs.buf}));
+        nid = meta.push_inline(entry.info, std::as_bytes(std::span{dirs.buf}));
 
-      for (int i = 0, idx = start; idx < q.size(); i++, idx++) {
-        q[idx].link = { nid, dirs.entry_off[i] };
-        q[idx].parent_type = erofs::mode_to_filetype(entry.info.mode);
+        for (int i = 0, idx = start; idx < q.size(); i++, idx++) {
+          q[idx].link = { nid, dirs.entry_off[i] };
+          q[idx].parent_type = erofs::mode_to_filetype(entry.info.mode);
+        }
+
+        if (entry.link.first != -1)
+          complete_link(entry.link.first, nid, dirs.entry_off.back());
+
+        if (root_nid == -1)
+          root_nid = nid;
       }
-
-      if (entry.link.first != -1)
-        complete_link(entry.link.first, nid, dirs.entry_off.back());
-
-      if (root_nid == -1)
-        root_nid = nid;
     } else {
       if (auto it = index.find(entry.csum); it != index.end()) {
         nid = it->second.nid;
